@@ -69,7 +69,7 @@ jobs:
       - name: dist
         run: |
           mkdir dist
-          wasm-opt --low-memory-unused --converge --gufa --flatten --rereloop -Oz $(find pandoc -type f -name pandoc.wasm) -o dist/pandoc.wasm
+          wasm-opt --low-memory-unused --converge --flatten --rereloop -O2 $(find pandoc -type f -name pandoc.wasm) -o dist/pandoc.wasm
 
       - name: test
         run: |
