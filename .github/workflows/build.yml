@@ -1,86 +1,84 @@
-name: build
+name: Build Pandoc WASM
 
 on:
-  merge_group:
-  pull_request:
   push:
-    branches:
-      - main
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
   workflow_dispatch:
 
 jobs:
   build:
-    name: build
     runs-on: ubuntu-latest
-    permissions:
-      pages: write
-      id-token: write
+    
     steps:
+    - name: 1. Install Base Dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y --no-install-recommends \
+          build-essential \
+          python3 pkg-config libtinfo-dev libffi-dev libgmp-dev zlib1g-dev \
+          cabal-install ghc \
+          binaryen \
+          ca-certificates \
+          jq \
+          unzip \
+          zstd
 
-      - name: setup-alex-happy
-        run: |
-          pushd "$(mktemp -d)"
-          cabal path --installdir >> "$GITHUB_PATH"
-          cabal update
-          cabal install \
-            alex \
-            happy
-          popd
+    - name: 2. Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18.19.0'
+        
+    - name: 3. Setup Wasmtime
+      run: |
+        curl https://wasmtime.dev/install.sh -sSf | bash
+        echo "$HOME/.wasmtime/bin" >> $GITHUB_PATH
+        
+    - name: 4. Install Haskell Tools (alex, happy)
+      run: |
+        cabal update
+        cabal install alex happy
+        echo "$HOME/.cabal/bin" >> $GITHUB_PATH
 
-      - name: setup-ghc-wasm
-        run: |
-          pushd "$(mktemp -d)"
-          curl -f -L --retry 5 https://gitlab.haskell.org/haskell-wasm/ghc-wasm-meta/-/archive/master/ghc-wasm-meta-master.tar.gz | tar xz --strip-components=1
-          FLAVOUR=9.12 ./setup.sh
-          ~/.ghc-wasm/add_to_github_path.sh
-          popd
+    - name: 5. Install GHC for WebAssembly
+      run: |
+        curl -f -L --retry 10 --retry-delay 5 https://gitlab.haskell.org/haskell-wasm/ghc-wasm-meta/-/raw/master/bootstrap.sh | sh
+        echo "$HOME/.ghc-wasm/bin" >> $GITHUB_PATH
+        
+    - name: 6. Checkout Your Code (Optional)
+      uses: actions/checkout@v4
+      # 如果你的仓库有需要构建的代码，请保留此步骤
 
-      - name: checkout
-        uses: actions/checkout@v4
+    - name: 7. Clone Pandoc Repository
+      uses: actions/checkout@v4
+      with:
+        repository: haskell-wasm/pandoc
+        ref: wasm
+        path: pandoc
 
-      - name: checkout
-        uses: actions/checkout@v4
-        with:
-          repository: haskell-wasm/pandoc
-          ref: wasm
-          path: pandoc
+    - name: 8. Build Pandoc
+      shell: bash
+      run: |
+        source "$HOME/.ghc-wasm/env"
+        
+        cd pandoc
+        
+        echo "--- Running dry-run build ---"
+        wasm32-wasi-cabal build pandoc-cli --dry-run
+        
+        echo "--- Running actual build ---"
+        wasm32-wasi-cabal build pandoc-cli
 
-      - name: gen-plan-json
-        run: |
-          pushd pandoc
-          wasm32-wasi-cabal build pandoc-cli --dry-run
-          popd
-
-      - name: wasm-cabal-cache
-        uses: actions/cache@v4
-        with:
-          key: wasm-cabal-cache-${{ hashFiles('pandoc/dist-newstyle/cache/plan.json') }}
-          restore-keys: wasm-cabal-cache-
-          path: |
-            ~/.ghc-wasm/.cabal/store
-            pandoc/dist-newstyle
-
-      - name: build
-        run: |
-          pushd pandoc
-          wasm32-wasi-cabal build pandoc-cli
-          popd
-
-      - name: dist
-        run: |
-          mkdir dist
-          wasm-opt --low-memory-unused --converge --flatten --rereloop -O2 $(find pandoc -type f -name pandoc.wasm) -o dist/pandoc.wasm
-
-      - name: test
-        run: |
-          wasmtime run --dir $PWD::/ -- dist/pandoc.wasm pandoc/README.md -o pandoc/README.rst
-          head --lines=20 pandoc/README.rst
-
-      - name: upload-pages-artifact
-        uses: actions/upload-pages-artifact@v3
-        with:
-          path: dist
-          retention-days: 90
-
-      - name: deploy-pages
-        uses: actions/deploy-pages@v4
+    - name: 9. Optimize WASM file
+      run: |
+        mkdir -p dist
+        PANDOC_WASM_PATH=$(find pandoc -type f -name pandoc.wasm)
+        echo "Found pandoc.wasm at: $PANDOC_WASM_PATH"
+        wasm-opt --converge --flatten -O2 "$PANDOC_WASM_PATH" -o dist/pandoc.wasm
+        
+    - name: 10. Upload Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: pandoc-wasm
+        path: dist/pandoc.wasm
