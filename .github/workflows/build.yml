@@ -9,76 +9,165 @@ on:
 
 jobs:
   build:
+    name: Build and Optimize Pandoc WASM
     runs-on: ubuntu-latest
     
     steps:
-    - name: 1. Install Base Dependencies
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y --no-install-recommends \
-          build-essential \
-          python3 pkg-config libtinfo-dev libffi-dev libgmp-dev zlib1g-dev \
-          cabal-install ghc \
-          binaryen \
-          ca-certificates \
-          jq \
-          unzip \
-          zstd
+      - name: Setup Haskell Tools (alex, happy)
+        run: |
+          pushd "$(mktemp -d)"
+          cabal update
+          cabal install alex happy
+          cabal path --installdir >> "$GITHUB_PATH"
+          popd
 
-    - name: 2. Setup Node.js
-      uses: actions/setup-node@v4
-      with:
-        node-version: '18.19.0'
-        
-    - name: 3. Setup Wasmtime
-      run: |
-        curl https://wasmtime.dev/install.sh -sSf | bash
-        echo "$HOME/.wasmtime/bin" >> $GITHUB_PATH
-        
-    - name: 4. Install Haskell Tools (alex, happy)
-      run: |
-        cabal update
-        cabal install alex happy
-        echo "$HOME/.cabal/bin" >> $GITHUB_PATH
+      - name: Setup GHC for WebAssembly
+        run: |
+          pushd "$(mktemp -d)"
+          # 下载并解压 GHC/Wasm 工具链
+          curl -f -L --retry 10 --retry-delay 5 https://gitlab.haskell.org/haskell-wasm/ghc-wasm-meta/-/raw/master/bootstrap.sh | sh
+          # 将 GHC/Wasm 的 bin 目录添加到 PATH
+          ~/.ghc-wasm/add_to_github_path.sh
+          popd
 
-    - name: 5. Install GHC for WebAssembly
-      run: |
-        curl -f -L --retry 10 --retry-delay 5 https://gitlab.haskell.org/haskell-wasm/ghc-wasm-meta/-/raw/master/bootstrap.sh | sh
-        echo "$HOME/.ghc-wasm/bin" >> $GITHUB_PATH
-        
-    - name: 6. Checkout Your Code (Optional)
-      uses: actions/checkout@v4
-      # 如果你的仓库有需要构建的代码，请保留此步骤
+      - name: Setup Wasmtime
+        run: |
+          curl https://wasmtime.dev/install.sh -sSf | bash
+          echo "$HOME/.wasmtime/bin" >> $GITHUB_PATH
 
-    - name: 7. Clone Pandoc Repository
-      uses: actions/checkout@v4
-      with:
-        repository: haskell-wasm/pandoc
-        ref: wasm
-        path: pandoc
+      - name: Checkout Pandoc Repository
+        uses: actions/checkout@v4
+        with:
+          repository: haskell-wasm/pandoc
+          ref: wasm
+          path: pandoc
 
-    - name: 8. Build Pandoc
-      shell: bash
-      run: |
-        source "$HOME/.ghc-wasm/env"
-        
-        cd pandoc
-        
-        echo "--- Running dry-run build ---"
-        wasm32-wasi-cabal build pandoc-cli --dry-run
-        
-        echo "--- Running actual build ---"
-        wasm32-wasi-cabal build pandoc-cli
+      - name: Generate Cabal Build Plan
+        run: |
+          pushd pandoc
+          wasm32-wasi-cabal build pandoc-cli --dry-run
+          popd
 
-    - name: 9. Optimize WASM file
-      run: |
-        mkdir -p dist
-        PANDOC_WASM_PATH=$(find pandoc -type f -name pandoc.wasm)
-        echo "Found pandoc.wasm at: $PANDOC_WASM_PATH"
-        wasm-opt --converge --flatten -O2 "$PANDOC_WASM_PATH" -o dist/pandoc.wasm
+      - name: Cache Cabal and Pandoc Build Artifacts
+        uses: actions/cache@v4
+        with:
+          # 使用 plan.json 的哈希值作为缓存的 key
+          key: wasm-cabal-cache-${{ hashFiles('pandoc/dist-newstyle/cache/plan.json') }}
+          # 如果没有精确匹配，则使用一个通用的恢复 key
+          restore-keys: wasm-cabal-cache-
+          path: |
+            ~/.cabal/store
+            pandoc/dist-newstyle
+
+      - name: Build Pandoc with Wasm32-Wasi-GHC
+        run: |
+          pushd pandoc
+          wasm32-wasi-cabal build pandoc-cli
+          popd
+
+      - name: Optimize WASM file
+        run: |
+          mkdir -p dist
+          PANDOC_WASM_PATH=$(find pandoc -type f -name pandoc.wasm)
+          echo "Found pandoc.wasm at: $PANDOC_WASM_PATH"
+          # 使用更全面的优化参数，并加入 --low-memory-unused 来避免 Runner 内存耗尽
+          wasm-opt --low-memory-unused --converge --flatten --rereloop -O2 "$PANDOC_WASM_PATH" -o dist/pandoc.wasm
+
+      - name: Test the Optimized WASM file
+        run: |
+          # 运行测试，确保优化后的 wasm 文件可以正常工作
+          wasmtime run --dir $PWD::/ -- dist/pandoc.wasm pandoc/README.md -o pandoc/README.rst
+          echo "--- Test output (first 20 lines of README.rst): ---"
+          head --lines=20 pandoc/README.rst
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: pandoc-wasm
+          path: dist/pandoc.wasm
+          retention-days: 90
+
+# name: Build Pandoc WASM
+
+# on:
+#   push:
+#     branches: [ main ]
+#   pull_request:
+#     branches: [ main ]
+#   workflow_dispatch:
+
+# jobs:
+#   build:
+#     runs-on: ubuntu-latest
+    
+#     steps:
+#     - name: 1. Install Base Dependencies
+#       run: |
+#         sudo apt-get update
+#         sudo apt-get install -y --no-install-recommends \
+#           build-essential \
+#           python3 pkg-config libtinfo-dev libffi-dev libgmp-dev zlib1g-dev \
+#           cabal-install ghc \
+#           binaryen \
+#           ca-certificates \
+#           jq \
+#           unzip \
+#           zstd
+
+#     - name: 2. Setup Node.js
+#       uses: actions/setup-node@v4
+#       with:
+#         node-version: '18.19.0'
         
-    - name: 10. Upload Artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: pandoc-wasm
-        path: dist/pandoc.wasm
+#     - name: 3. Setup Wasmtime
+#       run: |
+#         curl https://wasmtime.dev/install.sh -sSf | bash
+#         echo "$HOME/.wasmtime/bin" >> $GITHUB_PATH
+        
+#     - name: 4. Install Haskell Tools (alex, happy)
+#       run: |
+#         cabal update
+#         cabal install alex happy
+#         echo "$HOME/.cabal/bin" >> $GITHUB_PATH
+
+#     - name: 5. Install GHC for WebAssembly
+#       run: |
+#         curl -f -L --retry 10 --retry-delay 5 https://gitlab.haskell.org/haskell-wasm/ghc-wasm-meta/-/raw/master/bootstrap.sh | sh
+#         echo "$HOME/.ghc-wasm/bin" >> $GITHUB_PATH
+        
+#     - name: 6. Checkout Your Code (Optional)
+#       uses: actions/checkout@v4
+#       # 如果你的仓库有需要构建的代码，请保留此步骤
+
+#     - name: 7. Clone Pandoc Repository
+#       uses: actions/checkout@v4
+#       with:
+#         repository: haskell-wasm/pandoc
+#         ref: wasm
+#         path: pandoc
+
+#     - name: 8. Build Pandoc
+#       shell: bash
+#       run: |
+#         source "$HOME/.ghc-wasm/env"
+        
+#         cd pandoc
+        
+#         echo "--- Running dry-run build ---"
+#         wasm32-wasi-cabal build pandoc-cli --dry-run
+        
+#         echo "--- Running actual build ---"
+#         wasm32-wasi-cabal build pandoc-cli
+
+#     - name: 9. Optimize WASM file
+#       run: |
+#         mkdir -p dist
+#         PANDOC_WASM_PATH=$(find pandoc -type f -name pandoc.wasm)
+#         echo "Found pandoc.wasm at: $PANDOC_WASM_PATH"
+#         wasm-opt --converge --flatten -O2 "$PANDOC_WASM_PATH" -o dist/pandoc.wasm
+        
+#     - name: 10. Upload Artifact
+#       uses: actions/upload-artifact@v4
+#       with:
+#         name: pandoc-wasm
+#         path: dist/pandoc.wasm
