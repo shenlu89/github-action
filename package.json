@@ -1,16 +1,40 @@
 {
-  "name": "@shenlu/pandoc-wasm",
-  "version": "1.0.2",
-  "description": "",
+  "name": "@mathcheap/pandoc-wasm",
+  "version": "0.1.0",
+  "description": "Pandoc WebAssembly package for Node.js",
   "main": "index.js",
-  "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+  "bin": {
+    "pandoc-wasm": "./cli.js"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
+  "scripts": {
+    "test": "node run_test.js",
+    "prepublishOnly": "npm test"
+  },
+  "keywords": [
+    "pandoc",
+    "wasm",
+    "webassembly",
+    "markdown",
+    "converter"
+  ],
+  "author": "Shen Lu",
+  "license": "MIT",
   "types": "./index.d.ts",
+  "files": [
+    "index.js",
+    "cli.js",
+    "index.d.ts",
+    "pandoc.wasm",
+    "README.md"
+  ],
   "dependencies": {
     "@bjorn3/browser_wasi_shim": "^0.4.2"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/shenlu89/pandoc-wasm.git"
   }
 }
