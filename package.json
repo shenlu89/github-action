@@ -1,5 +1,5 @@
 {
-  "name": "dist",
+  "name": "@shenlu89/pandoc-wasm",
   "version": "1.0.1",
   "description": "",
   "main": "index.js",
