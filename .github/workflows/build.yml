@@ -2,10 +2,9 @@ name: Build and Publish Pandoc WASM
 
 on:
   push:
-    branches: [ main ]
     tags: [ 'v*' ]
   pull_request:
-    branches: [ main ]
+    tags: [ 'v*' ]
   workflow_dispatch:
 
 jobs:
@@ -75,7 +74,7 @@ jobs:
         run: |
           PANDOC_WASM_PATH=$(find pandoc -type f -name pandoc.wasm)
           echo "Found pandoc.wasm at: $PANDOC_WASM_PATH"
-          wasm-opt --low-memory-unused --converge --flatten --rereloop -O2 "$PANDOC_WASM_PATH" -o pandoc.wasm
+          wasm-opt --low-memory-unused --converge --flatten --rereloop -Oz "$PANDOC_WASM_PATH" -o pandoc.wasm
 
       - name: Test the Optimized WASM file
         run: |
