@@ -77,7 +77,7 @@ jobs:
         run: |
           PANDOC_WASM_PATH=$(find pandoc -type f -name pandoc.wasm -printf "%T@ %p\n" | sort -n | tail -1 | cut -d' ' -f2-)
           echo "Found pandoc.wasm at: $PANDOC_WASM_PATH"
-          wasm-opt --low-memory-unused --converge --gufa  --flatten --rereloop -Oz "$PANDOC_WASM_PATH" -o pandoc.wasm
+          wasm-opt --low-memory-unused --converge --flatten --rereloop -Oz "$PANDOC_WASM_PATH" -o pandoc.wasm
 
       - name: Test the Optimized WASM file
         run: |
