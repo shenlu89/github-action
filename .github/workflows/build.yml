@@ -10,7 +10,7 @@ on:
 jobs:
   build:
     name: Build and Optimize Pandoc WASM
-    runs-on: ubuntu-latest-8-cores
+    runs-on: ubuntu-latest
     
     steps:
       - name: Checkout Repository
@@ -64,6 +64,9 @@ jobs:
             ~/.cabal/store
             pandoc/dist-newstyle
 
+      - name: Clean old build artifacts
+        run: rm -rf pandoc/dist-newstyle
+
       - name: Build Pandoc with Wasm32-Wasi-GHC
         run: |
           pushd pandoc
@@ -72,9 +75,9 @@ jobs:
 
       - name: Optimize WASM file
         run: |
-          PANDOC_WASM_PATH=$(find pandoc -type f -name pandoc.wasm)
+          PANDOC_WASM_PATH=$(find pandoc -type f -name pandoc.wasm -printf "%T@ %p\n" | sort -n | tail -1 | cut -d' ' -f2-)
           echo "Found pandoc.wasm at: $PANDOC_WASM_PATH"
-          wasm-opt --low-memory-unused --converge --flatten --rereloop -Oz "$PANDOC_WASM_PATH" -o pandoc.wasm
+          wasm-opt --low-memory-unused --converge --gufa  --flatten --rereloop -Oz "$PANDOC_WASM_PATH" -o pandoc.wasm
 
       - name: Test the Optimized WASM file
         run: |
